@@ -7,8 +7,13 @@
 (defun firsty (x)
   (let ((keys (alexandria:hash-table-keys x)))
     (gethash (car keys) x)))
+(defun say-about (x y)
+  (format t ">>~S:~S<<~&" x y)
+  y)
 
-
+(defun say (x)
+  (format t ">>~S<<~&" x)
+  x)
 (defun first-first (x) (firsty (gethash "cells" (firsty (gethash "modules" x)))))
 
 (defstruct (ir-op
@@ -27,16 +32,32 @@
               :connections (list (list "Y" "output" value))
               :parameters (list (list "VALUE" const))))
 
+(defun convert-connections (names dirs conns idx)
+  (cond ((null names) (list '() '()))
+        (t (let ((name (car names))
+              (dir (car dirs))
+              (conn (car conns))
+              (continue (alexandria:curry #'convert-connections
+                                          (cdr names)
+                                          (cdr dirs)
+                                          (cdr conns))))
+    (typecase conn
+      (integer (let ((next (funcall continue (+ idx 1))))
+                 (cons (cons (list name dir conn) (car next))
+                       (cdr next))))
+      (t (let ((next (funcall continue idx)))
+              (list (car next)
+                    (cons (create-constant-op "" conn idx)
+                          (cdr next))))))))))
+
 (defun extract-connections (cell-hash)
   "Extract port connections from Yosys port hash table"
   (let ((conns-hash (gethash "connections" cell-hash))
         (dirs-hash (gethash "port_directions" cell-hash)))
-    (map 'list
-         (lambda (port)
-           (list port
-                 (gethash port dirs-hash)
-                 (gethash port conns-hash)))
-         (alexandria:hash-table-keys conns-hash))))
+    (let* ((ports (alexandria:hash-table-keys conns-hash))
+           (conns (mapcar (lambda (port) (gethash port conns-hash)) ports))
+           (dirs (mapcar (lambda (port) (gethash port dirs-hash)) ports)))
+      (convert-connections ports dirs conns 0))))
 
 (defun extract-parameters (params-hash)
   "Extract parameters from Yosys parameter hash table"
@@ -49,8 +70,8 @@
 
 (defun convert-cell (name cell-hash)
   (let* ((connection-mess (extract-connections cell-hash))
-         (connections (car connection-mess))
-         (consts (cdr connection-mess)))
+         (consts (cdr connection-mess))
+         (connections (cdar connection-mess)))
   (cons (make-ir-op
               :name name
               :type (gethash "type" cell-hash)
