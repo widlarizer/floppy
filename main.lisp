@@ -17,8 +17,8 @@
 (defun first-first (x) (firsty (gethash "cells" (firsty (gethash "modules" x)))))
 
 (defstruct (ir-op
-                  (:constructor make-ir-op)
-                  (:copier nil))
+            (:constructor make-ir-op)
+            (:copier nil))
   "Read-only struct representing an IR operation"
   (name nil :type (or null string) :read-only t)
   (type nil :type (or null string) :read-only t)
@@ -30,25 +30,26 @@
   (make-ir-op :name name
               :type "constant"
               :connections (list (list "Y" "output" value))
-              :parameters (list (list "VALUE" const))))
+              :parameters (list (list "VALUE" (reduce (alexandria:curry #'concatenate 'string) const)))))
 
 (defun convert-connections (names dirs conns idx)
   (cond ((null names) (list '() '()))
         (t (let ((name (car names))
-              (dir (car dirs))
-              (conn (car conns))
-              (continue (alexandria:curry #'convert-connections
-                                          (cdr names)
-                                          (cdr dirs)
-                                          (cdr conns))))
-    (typecase conn
-      (integer (let ((next (funcall continue (+ idx 1))))
-                 (cons (cons (list name dir conn) (car next))
-                       (cdr next))))
-      (t (let ((next (funcall continue idx)))
-              (list (car next)
-                    (cons (create-constant-op "" conn idx)
-                          (cdr next))))))))))
+                 (dir (car dirs))
+                 (conn (car conns))
+                 (continue (alexandria:curry #'convert-connections
+                                             (cdr names)
+                                             (cdr dirs)
+                                             (cdr conns))))
+             (typecase conn
+               (integer (let ((next (funcall continue idx)))
+                          (cons (cons (list name dir conn) (car next))
+                                (cdr next))))
+               (t (let ((next (funcall continue (+ idx 1))))
+                    (cons (cons (list name dir idx)
+                                (car next))
+                          (cons (create-constant-op "" conn idx)
+                                (cdr next))))))))))
 
 (defun extract-connections (cell-hash)
   "Extract port connections from Yosys port hash table"
@@ -70,14 +71,14 @@
 
 (defun convert-cell (name cell-hash)
   (let* ((connection-mess (extract-connections cell-hash))
-         (consts (cdr connection-mess))
-         (connections (cdar connection-mess)))
-  (cons (make-ir-op
-              :name name
-              :type (gethash "type" cell-hash)
-              :connections connections
-              :parameters (extract-parameters (gethash "parameters" cell-hash)))
-        consts)))
+         (consts (say-about "consts" (cdr connection-mess)))
+         (connections (say-about "connections" (car connection-mess))))
+    (cons (make-ir-op
+           :name name
+           :type (gethash "type" cell-hash)
+           :connections connections
+           :parameters (extract-parameters (gethash "parameters" cell-hash)))
+          consts)))
 
 (defun convert-module (module)
   (let* ((cells (gethash "cells" module))
